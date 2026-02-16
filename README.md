@@ -74,7 +74,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: your-org/difftrace@v1
+      - uses: vanandrew/difftrace@v1
         id: diff
         with:
           base: origin/main

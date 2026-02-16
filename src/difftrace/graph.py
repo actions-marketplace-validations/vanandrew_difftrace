@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import sys
 import tomllib
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
+
+SUPPORTED_LOCK_VERSIONS = {1}
 
 
 @dataclass
@@ -61,6 +64,15 @@ def parse_lock_file(
         ValueError: If the lock file has no [manifest] section (not a workspace).
     """
     data = tomllib.loads(lock_path.read_text())
+
+    lock_version = data.get("version")
+    if lock_version not in SUPPORTED_LOCK_VERSIONS:
+        print(
+            f"Warning: uv.lock version {lock_version} is not "
+            f"recognized (supported: {SUPPORTED_LOCK_VERSIONS}). "
+            "Results may be unreliable.",
+            file=sys.stderr,
+        )
 
     manifest = data.get("manifest")
     if manifest is None:

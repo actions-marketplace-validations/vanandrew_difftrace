@@ -1,7 +1,5 @@
 """End-to-end integration tests using fixture lock content."""
 
-from unittest.mock import patch
-
 from difftrace.diff import map_files_to_packages, relativize_to_workspace
 from difftrace.graph import parse_lock_file
 from difftrace.traverse import find_affected_packages

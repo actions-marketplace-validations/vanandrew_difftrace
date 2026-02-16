@@ -15,24 +15,43 @@ from difftrace.graph import WorkspacePackage
 class TestGetGitRoot:
     @patch("difftrace.diff.subprocess.run")
     def test_returns_path(self, mock_run):
+        mock_run.return_value.returncode = 0
         mock_run.return_value.stdout = "/home/user/repo\n"
         result = get_git_root()
         assert result == Path("/home/user/repo")
         mock_run.assert_called_once()
 
+    @patch("difftrace.diff.subprocess.run")
+    def test_not_a_git_repo(self, mock_run):
+        mock_run.return_value.returncode = 128
+        mock_run.return_value.stderr = "fatal: not a git repository"
+        with pytest.raises(ValueError, match="Not a git repository"):
+            get_git_root()
+
 
 class TestGetChangedFiles:
     @patch("difftrace.diff.subprocess.run")
     def test_returns_file_list(self, mock_run):
-        mock_run.return_value.stdout = "packages/api/src/main.py\npackages/shared/lib.py\n"
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = (
+            "packages/api/src/main.py\npackages/shared/lib.py\n"
+        )
         result = get_changed_files("origin/main")
         assert result == ["packages/api/src/main.py", "packages/shared/lib.py"]
 
     @patch("difftrace.diff.subprocess.run")
     def test_empty_diff(self, mock_run):
+        mock_run.return_value.returncode = 0
         mock_run.return_value.stdout = ""
         result = get_changed_files("origin/main")
         assert result == []
+
+    @patch("difftrace.diff.subprocess.run")
+    def test_bad_ref(self, mock_run):
+        mock_run.return_value.returncode = 128
+        mock_run.return_value.stderr = "fatal: unknown revision 'nope'"
+        with pytest.raises(ValueError, match="Could not resolve ref"):
+            get_changed_files("nope")
 
 
 class TestRelativizeToWorkspace:
@@ -118,18 +137,14 @@ class TestMapFilesToPackages:
             "myproject": WorkspacePackage(name="myproject", source_path="."),
             "api": WorkspacePackage(name="api", source_path="packages/api"),
         }
-        changed, test_all = map_files_to_packages(
-            ["packages/api/main.py"], packages
-        )
+        changed, test_all = map_files_to_packages(["packages/api/main.py"], packages)
         assert changed == {"api"}
         # Virtual root should not match
         assert "myproject" not in changed
 
     def test_no_match(self):
         packages = self._make_packages()
-        changed, test_all = map_files_to_packages(
-            ["some/random/file.txt"], packages
-        )
+        changed, test_all = map_files_to_packages(["some/random/file.txt"], packages)
         assert changed == set()
         assert test_all is False
 
@@ -140,3 +155,34 @@ class TestMapFilesToPackages:
             ["packages/api-extra/foo.py"], packages
         )
         assert changed == set()
+
+    def test_custom_root_trigger(self):
+        packages = self._make_packages()
+        changed, test_all = map_files_to_packages(
+            ["Dockerfile"],
+            packages,
+            root_triggers={"Dockerfile"},
+            dir_triggers=set(),
+        )
+        assert test_all is True
+
+    def test_custom_dir_trigger(self):
+        packages = self._make_packages()
+        changed, test_all = map_files_to_packages(
+            ["docker/compose.yml"],
+            packages,
+            root_triggers=set(),
+            dir_triggers={"docker/"},
+        )
+        assert test_all is True
+
+    def test_custom_triggers_override_defaults(self):
+        """When custom triggers are passed, defaults are not used."""
+        packages = self._make_packages()
+        changed, test_all = map_files_to_packages(
+            ["pyproject.toml"],
+            packages,
+            root_triggers=set(),
+            dir_triggers=set(),
+        )
+        assert test_all is False

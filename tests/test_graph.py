@@ -71,7 +71,9 @@ class TestParseLockFile:
 
     def test_no_manifest(self, tmp_path):
         lock_file = tmp_path / "uv.lock"
-        lock_file.write_text('version = 1\n\n[[package]]\nname = "foo"\nversion = "1.0"\n')
+        lock_file.write_text(
+            'version = 1\n\n[[package]]\nname = "foo"\nversion = "1.0"\n'
+        )
         with pytest.raises(ValueError, match="no \\[manifest\\] section"):
             parse_lock_file(lock_file)
 
@@ -80,3 +82,12 @@ class TestParseLockFile:
         lock_file.write_text("version = 1\n\n[manifest]\nmembers = []\n")
         with pytest.raises(ValueError, match="no workspace members"):
             parse_lock_file(lock_file)
+
+    def test_unknown_lock_version_warns(self, tmp_path, capsys):
+        lock_file = tmp_path / "uv.lock"
+        lock_file.write_text("version = 99\n\n[manifest]\nmembers = []\n")
+        with pytest.raises(ValueError):
+            parse_lock_file(lock_file)
+        stderr = capsys.readouterr().err
+        assert "version 99" in stderr
+        assert "not recognized" in stderr

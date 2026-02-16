@@ -5,9 +5,9 @@ from pathlib import Path
 
 from difftrace.graph import WorkspacePackage
 
-# Files at the workspace root that should trigger testing all packages.
-ROOT_TRIGGERS = {"pyproject.toml", "uv.lock"}
-DIR_TRIGGERS = {".github/"}
+# Default files/dirs at the workspace root that trigger testing all packages.
+DEFAULT_ROOT_TRIGGERS = {"pyproject.toml", "uv.lock"}
+DEFAULT_DIR_TRIGGERS = {".github/"}
 
 
 def get_git_root(cwd: Path | None = None) -> Path:
@@ -16,9 +16,10 @@ def get_git_root(cwd: Path | None = None) -> Path:
         ["git", "rev-parse", "--show-toplevel"],
         capture_output=True,
         text=True,
-        check=True,
         cwd=cwd,
     )
+    if result.returncode != 0:
+        raise ValueError("Not a git repository. Run difftrace from within a git repo.")
     return Path(result.stdout.strip())
 
 
@@ -31,9 +32,17 @@ def get_changed_files(base_ref: str, repo_root: Path | None = None) -> list[str]
         ["git", "diff", "--name-only", f"{base_ref}...HEAD"],
         capture_output=True,
         text=True,
-        check=True,
         cwd=repo_root,
     )
+    if result.returncode != 0:
+        stderr = result.stderr.strip()
+        if "unknown revision" in stderr or "not a git repository" in stderr:
+            raise ValueError(
+                f"Could not resolve ref '{base_ref}'. "
+                "Does the branch/ref exist? "
+                "Try 'git fetch' or use --base with a valid ref."
+            )
+        raise RuntimeError(f"git diff failed: {stderr}")
     return [f for f in result.stdout.strip().splitlines() if f]
 
 
@@ -70,16 +79,26 @@ def relativize_to_workspace(
 def map_files_to_packages(
     changed_files: list[str],
     packages: dict[str, WorkspacePackage],
+    *,
+    root_triggers: set[str] | None = None,
+    dir_triggers: set[str] | None = None,
 ) -> tuple[set[str], bool]:
     """Map workspace-relative changed files to affected packages.
 
     Args:
         changed_files: File paths relative to the workspace root.
         packages: Workspace packages from the dependency graph.
+        root_triggers: File names that trigger test_all. None uses defaults.
+        dir_triggers: Directory prefixes that trigger test_all. None uses defaults.
 
     Returns:
         Tuple of (directly changed package names, test_all flag).
     """
+    if root_triggers is None:
+        root_triggers = DEFAULT_ROOT_TRIGGERS
+    if dir_triggers is None:
+        dir_triggers = DEFAULT_DIR_TRIGGERS
+
     test_all = False
     directly_changed: set[str] = set()
 
@@ -92,11 +111,11 @@ def map_files_to_packages(
 
     for filepath in changed_files:
         # Check root triggers
-        if filepath in ROOT_TRIGGERS:
+        if filepath in root_triggers:
             test_all = True
             continue
 
-        if any(filepath.startswith(trigger) for trigger in DIR_TRIGGERS):
+        if any(filepath.startswith(trigger) for trigger in dir_triggers):
             test_all = True
             continue
 
